@@ -789,6 +789,10 @@ MCP tools are automatically discovered and registered on startup. The LLM can us
 
 
 ## CLI Reference
+> [!TIP]
+> Use global Options `-c` or `--config` with path to config file, can run multi instance separable‌.
+
+> Common methods: create a new workspace directory, and create an empty configuration file, start with `nanobot -c config.json onboard`, use with `nanobot -c config.json subcommand`.
 
 | Command | Description |
 |---------|-------------|

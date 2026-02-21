@@ -20,6 +20,7 @@ from prompt_toolkit.patch_stdout import patch_stdout
 
 from nanobot import __version__, __logo__
 from nanobot.config.schema import Config
+_CONFIG_PATH: Path | None = None
 
 app = typer.Typer(
     name="nanobot",
@@ -143,9 +144,11 @@ def main(
     version: bool = typer.Option(
         None, "--version", "-v", callback=version_callback, is_eager=True
     ),
+    config: Path = typer.Option(None, "--config", "-c", help="Path to config file"),
 ):
     """nanobot - Personal AI Assistant."""
-    pass
+    global _CONFIG_PATH
+    _CONFIG_PATH = config
 
 
 # ============================================================================
@@ -160,7 +163,7 @@ def onboard():
     from nanobot.config.schema import Config
     from nanobot.utils.helpers import get_workspace_path
     
-    config_path = get_config_path()
+    config_path = _CONFIG_PATH or get_config_path()
     
     if config_path.exists():
         console.print(f"[yellow]Config already exists at {config_path}[/yellow]")
@@ -168,18 +171,18 @@ def onboard():
         console.print("  [bold]N[/bold] = refresh config, keeping existing values and adding new fields")
         if typer.confirm("Overwrite?"):
             config = Config()
-            save_config(config)
+            save_config(config, config_path)
             console.print(f"[green]✓[/green] Config reset to defaults at {config_path}")
         else:
-            config = load_config()
-            save_config(config)
+            config = load_config(config_path)
+            save_config(config, config_path)
             console.print(f"[green]✓[/green] Config refreshed at {config_path} (existing values preserved)")
     else:
-        save_config(Config())
+        save_config(Config(), config_path)
         console.print(f"[green]✓[/green] Created config at {config_path}")
     
     # Create workspace
-    workspace = get_workspace_path()
+    workspace = get_workspace_path(str(config_path.parent / "workspace"))
     
     if not workspace.exists():
         workspace.mkdir(parents=True, exist_ok=True)
@@ -190,7 +193,7 @@ def onboard():
     
     console.print(f"\n{__logo__} nanobot is ready!")
     console.print("\nNext steps:")
-    console.print("  1. Add your API key to [cyan]~/.nanobot/config.json[/cyan]")
+    console.print(f"  1. Add your API key to [cyan]{config_path}[/cyan]")
     console.print("     Get one at: https://openrouter.ai/keys")
     console.print("  2. Chat: [cyan]nanobot agent -m \"Hello!\"[/cyan]")
     console.print("\n[dim]Want Telegram/WhatsApp? See: https://github.com/HKUDS/nanobot#-chat-apps[/dim]")
@@ -343,13 +346,13 @@ def gateway(
     
     console.print(f"{__logo__} Starting nanobot gateway on port {port}...")
     
-    config = load_config()
+    config = load_config(_CONFIG_PATH)
     bus = MessageBus()
     provider = _make_provider(config)
     session_manager = SessionManager(config.workspace_path)
     
     # Create cron service first (callback set after agent creation)
-    cron_store_path = get_data_dir() / "cron" / "jobs.json"
+    cron_store_path = get_data_dir(_CONFIG_PATH) / "cron" / "jobs.json"
     cron = CronService(cron_store_path)
     
     # Create agent with cron service
@@ -456,13 +459,13 @@ def agent(
     from nanobot.cron.service import CronService
     from loguru import logger
     
-    config = load_config()
+    config = load_config(_CONFIG_PATH)
     
     bus = MessageBus()
     provider = _make_provider(config)
 
     # Create cron service for tool usage (no callback needed for CLI unless running)
-    cron_store_path = get_data_dir() / "cron" / "jobs.json"
+    cron_store_path = get_data_dir(_CONFIG_PATH) / "cron" / "jobs.json"
     cron = CronService(cron_store_path)
 
     if logs:
@@ -610,7 +613,7 @@ def channels_status():
     """Show channel status."""
     from nanobot.config.loader import load_config
 
-    config = load_config()
+    config = load_config(_CONFIG_PATH)
 
     table = Table(title="Channel Status")
     table.add_column("Channel", style="cyan")
@@ -735,7 +738,7 @@ def channels_login():
     import subprocess
     from nanobot.config.loader import load_config
     
-    config = load_config()
+    config = load_config(_CONFIG_PATH)
     bridge_dir = _get_bridge_dir()
     
     console.print(f"{__logo__} Starting bridge...")
@@ -769,7 +772,7 @@ def cron_list(
     from nanobot.config.loader import get_data_dir
     from nanobot.cron.service import CronService
     
-    store_path = get_data_dir() / "cron" / "jobs.json"
+    store_path = get_data_dir(_CONFIG_PATH) / "cron" / "jobs.json"
     service = CronService(store_path)
     
     jobs = service.list_jobs(include_disabled=all)
@@ -848,7 +851,7 @@ def cron_add(
         console.print("[red]Error: Must specify --every, --cron, or --at[/red]")
         raise typer.Exit(1)
     
-    store_path = get_data_dir() / "cron" / "jobs.json"
+    store_path = get_data_dir(_CONFIG_PATH) / "cron" / "jobs.json"
     service = CronService(store_path)
     
     try:
@@ -875,7 +878,7 @@ def cron_remove(
     from nanobot.config.loader import get_data_dir
     from nanobot.cron.service import CronService
     
-    store_path = get_data_dir() / "cron" / "jobs.json"
+    store_path = get_data_dir(_CONFIG_PATH) / "cron" / "jobs.json"
     service = CronService(store_path)
     
     if service.remove_job(job_id):
@@ -892,8 +895,8 @@ def cron_enable(
     """Enable or disable a job."""
     from nanobot.config.loader import get_data_dir
     from nanobot.cron.service import CronService
-    
-    store_path = get_data_dir() / "cron" / "jobs.json"
+
+    store_path = get_data_dir(_CONFIG_PATH) / "cron" / "jobs.json"
     service = CronService(store_path)
     
     job = service.enable_job(job_id, enabled=not disable)
@@ -916,9 +919,10 @@ def cron_run(
     from nanobot.cron.types import CronJob
     from nanobot.bus.queue import MessageBus
     from nanobot.agent.loop import AgentLoop
+
     logger.disable("nanobot")
 
-    config = load_config()
+    config = load_config(_CONFIG_PATH)
     provider = _make_provider(config)
     bus = MessageBus()
     agent_loop = AgentLoop(
@@ -936,7 +940,7 @@ def cron_run(
         mcp_servers=config.tools.mcp_servers,
     )
 
-    store_path = get_data_dir() / "cron" / "jobs.json"
+    store_path = get_data_dir(_CONFIG_PATH) / "cron" / "jobs.json"
     service = CronService(store_path)
 
     result_holder = []
@@ -974,8 +978,8 @@ def status():
     """Show nanobot status."""
     from nanobot.config.loader import load_config, get_config_path
 
-    config_path = get_config_path()
-    config = load_config()
+    config_path = _CONFIG_PATH or get_config_path()
+    config = load_config(_CONFIG_PATH)
     workspace = config.workspace_path
 
     console.print(f"{__logo__} nanobot Status\n")

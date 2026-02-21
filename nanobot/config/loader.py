@@ -11,10 +11,13 @@ def get_config_path() -> Path:
     return Path.home() / ".nanobot" / "config.json"
 
 
-def get_data_dir() -> Path:
+def get_data_dir(config_path: Path | None = None) -> Path:
     """Get the nanobot data directory."""
-    from nanobot.utils.helpers import get_data_path
-    return get_data_path()
+    from nanobot.utils.helpers import ensure_dir
+
+    if config_path:
+        return ensure_dir(config_path.parent)
+    return ensure_dir(Path.home() / ".nanobot")
 
 
 def load_config(config_path: Path | None = None) -> Config:
