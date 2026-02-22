@@ -88,7 +88,11 @@ def _init_prompt_session() -> None:
     except Exception:
         pass
 
-    history_file = Path.home() / ".nanobot" / "history" / "cli_history"
+    if _CONFIG_PATH:
+        history_base = _CONFIG_PATH.parent
+    else:
+        history_base = Path.home() / ".nanobot"
+    history_file = history_base / "history" / "cli_history"
     history_file.parent.mkdir(parents=True, exist_ok=True)
 
     _PROMPT_SESSION = PromptSession(
@@ -343,10 +347,14 @@ def gateway(
     if verbose:
         import logging
         logging.basicConfig(level=logging.DEBUG)
+
+    config = load_config(_CONFIG_PATH)
+
+    if _CONFIG_PATH:
+        port = config.gateway.port
     
     console.print(f"{__logo__} Starting nanobot gateway on port {port}...")
     
-    config = load_config(_CONFIG_PATH)
     bus = MessageBus()
     provider = _make_provider(config)
     session_manager = SessionManager(config.workspace_path)
@@ -680,7 +688,10 @@ def _get_bridge_dir() -> Path:
     import subprocess
     
     # User's bridge location
-    user_bridge = Path.home() / ".nanobot" / "bridge"
+    if _CONFIG_PATH:
+        user_bridge = _CONFIG_PATH.parent / "bridge"
+    else:
+        user_bridge = Path.home() / ".nanobot" / "bridge"
     
     # Check if already built
     if (user_bridge / "dist" / "index.js").exists():
