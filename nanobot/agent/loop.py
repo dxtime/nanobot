@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
 from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
@@ -90,6 +91,7 @@ class AgentLoop:
         )
 
         self._running = False
+        self._start_time = time.monotonic()
         self._mcp_servers = mcp_servers or {}
         self._mcp_stack: AsyncExitStack | None = None
         self._mcp_connected = False
@@ -350,7 +352,7 @@ class AgentLoop:
                                   content="New session started.")
         if cmd == "/help":
             return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
-                                  content="🐈 nanobot commands:\n/new — Start a new conversation\n/help — Show available commands\n/models — List or Switch available models")
+                                  content="nanobot commands:\n/new — Start a new conversation\n/help — Show available commands\n/models — List or Switch available models\n/status — Show current status")
 
         if cmd == "/models" or cmd.startswith("/models "):
             models = await self.provider.list_models()
@@ -402,6 +404,70 @@ class AgentLoop:
                         channel=msg.channel, chat_id=msg.chat_id,
                         content="Invalid input. Use /models with a number.",
                     )
+
+        if cmd == "/status":
+            elapsed = time.monotonic() - self._start_time
+            hours, rem = divmod(int(elapsed), 3600)
+            mins, secs = divmod(rem, 60)
+            uptime = f"{hours}h {mins}m {secs}s" if hours else f"{mins}m {secs}s"
+
+            identity = self.context._get_identity()
+            bootstrap = self.context._load_bootstrap_files()
+            memory_ctx = self.context.memory.get_memory_context()
+
+            always_skills = self.context.skills.get_always_skills()
+            always_content = (
+                self.context.skills.load_skills_for_context(always_skills) if always_skills else ""
+            )
+            skills_summary = self.context.skills.build_skills_summary()
+            skills_content = (
+                f"{always_content}\n{skills_summary}" if always_content else skills_summary
+            )
+
+            system_total = len(identity) + len(bootstrap) + len(memory_ctx) + len(skills_content)
+
+            msg_count = len(session.messages)
+            msg_chars = sum(len(str(m.get("content", ""))) for m in session.messages)
+
+            tool_defs = self.tools.get_definitions()
+            tool_chars = sum(len(str(d)) for d in tool_defs)
+
+            total_chars = system_total + msg_chars + tool_chars
+
+            skills = self.context.skills.list_skills(filter_unavailable=False)
+            skills_info = []
+            for s in skills:
+                meta = self.context.skills._get_skill_meta(s["name"])
+                available = self.context.skills._check_requirements(meta)
+                status = "ok" if available else "unavailable"
+                skills_info.append(f"    {s['name']} ({s['source']}, {status})")
+            skills_str = "\n".join(skills_info) if skills_info else "    (none)"
+
+            tool_names = sorted(self.tools.tool_names)
+
+            lines = [
+                "nanobot status",
+                f"  Model: {self.model}",
+                "  Context:",
+                f"    System: {system_total} chars",
+                f"      - Identity: {len(identity)} chars",
+                f"      - Bootstrap: {len(bootstrap)} chars",
+                f"      - Memory: {len(memory_ctx)} chars",
+                f"      - Skills: {len(skills_content)} chars",
+                f"    Messages: {msg_count} items, {msg_chars} chars",
+                f"    Tools: {len(tool_defs)} defs, {tool_chars} chars",
+                f"    Total: {total_chars} chars",
+                f"  Session: {session.key}",
+                f"  Created: {session.created_at.strftime('%Y-%m-%d %H:%M')}",
+                f"  Updated: {session.updated_at.strftime('%Y-%m-%d %H:%M')}",
+                f"  Uptime: {uptime}",
+                "  Skills:",
+                skills_str,
+                f"  Tools: {', '.join(tool_names)}",
+            ]
+            return OutboundMessage(
+                channel=msg.channel, chat_id=msg.chat_id, content="\n".join(lines)
+            )
 
         if len(session.messages) > self.memory_window and session.key not in self._consolidating:
             self._consolidating.add(session.key)
