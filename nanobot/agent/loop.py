@@ -350,7 +350,58 @@ class AgentLoop:
                                   content="New session started.")
         if cmd == "/help":
             return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
-                                  content="🐈 nanobot commands:\n/new — Start a new conversation\n/help — Show available commands")
+                                  content="🐈 nanobot commands:\n/new — Start a new conversation\n/help — Show available commands\n/models — List or Switch available models")
+
+        if cmd == "/models" or cmd.startswith("/models "):
+            models = await self.provider.list_models()
+            if models is None:
+                return OutboundMessage(
+                    channel=msg.channel, chat_id=msg.chat_id,
+                    content="Model switching is not supported by the current provider.",
+                )
+            if not models:
+                await self.provider.refresh_models()
+                models = await self.provider.list_models() or []
+            if cmd == "/models":
+                if not models:
+                    return OutboundMessage(
+                        channel=msg.channel, chat_id=msg.chat_id,
+                        content="No models available. Use /models to refresh.",
+                    )
+                current = self.provider.get_current_model()
+                lines = ["Available models:"]
+                for i, m in enumerate(models, 1):
+                    marker = " (current)" if m == current else ""
+                    lines.append(f"  {i}. {m}{marker}")
+                lines.append(f"\nUse /models with a number to switch.")
+                return OutboundMessage(
+                    channel=msg.channel, chat_id=msg.chat_id, content="\n".join(lines)
+                )
+            parts = cmd.split(maxsplit=1)
+            if len(parts) == 2:
+                try:
+                    idx = int(parts[1])
+                    if 1 <= idx <= len(models):
+                        target = models[idx - 1]
+                        if self.provider.set_model(target):
+                            self.model = target
+                            return OutboundMessage(
+                                channel=msg.channel, chat_id=msg.chat_id,
+                                content=f"Switched to model: {target}",
+                            )
+                        return OutboundMessage(
+                            channel=msg.channel, chat_id=msg.chat_id,
+                            content=f"Failed to switch to model: {target}",
+                        )
+                    return OutboundMessage(
+                        channel=msg.channel, chat_id=msg.chat_id,
+                        content=f"Invalid model number. Use 1-{len(models)}.",
+                    )
+                except ValueError:
+                    return OutboundMessage(
+                        channel=msg.channel, chat_id=msg.chat_id,
+                        content="Invalid input. Use /models with a number.",
+                    )
 
         if len(session.messages) > self.memory_window and session.key not in self._consolidating:
             self._consolidating.add(session.key)

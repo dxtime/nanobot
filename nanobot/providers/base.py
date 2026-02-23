@@ -108,3 +108,19 @@ class LLMProvider(ABC):
     def get_default_model(self) -> str:
         """Get the default model for this provider."""
         pass
+
+    async def list_models(self) -> list[str] | None:
+        """Get available models. Returns None if provider doesn't support model switching."""
+        return None
+
+    def get_current_model(self) -> str:
+        """Get the currently active model. Defaults to get_default_model()."""
+        return self.get_default_model()
+
+    def set_model(self, model_name: str) -> bool:
+        """Switch to a different model. Returns True on success, False if unsupported or failed."""
+        return False
+
+    async def refresh_models(self) -> bool:
+        """Refresh available models from remote. Returns True on success, False if unsupported."""
+        return False
