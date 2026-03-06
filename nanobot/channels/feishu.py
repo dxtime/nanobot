@@ -715,7 +715,10 @@ class FeishuChannel(BaseChannel):
             (file_path, content_text) - file_path is None if download failed
         """
         loop = asyncio.get_running_loop()
-        media_dir = Path.home() / ".nanobot" / "media"
+        if self.config.media_dir:
+            media_dir = Path(self.config.media_dir)
+        else:
+            media_dir = Path.home() / ".nanobot" / "media"
         media_dir.mkdir(parents=True, exist_ok=True)
 
         data, filename = None, None

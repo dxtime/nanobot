@@ -47,6 +47,7 @@ class FeishuConfig(Base):
     react_emoji: str = (
         "THUMBSUP"  # Emoji type for message reactions (e.g. THUMBSUP, OK, DONE, SMILE)
     )
+    media_dir: str = ""  # Directory to save media files (default: ~/.nanobot/media)
 
 
 class DingTalkConfig(Base):
