@@ -44,7 +44,7 @@ class LLMResponse:
     usage: dict[str, int] = field(default_factory=dict)
     reasoning_content: str | None = None  # Kimi, DeepSeek-R1 etc.
     thinking_blocks: list[dict] | None = None  # Anthropic extended thinking
-    
+
     @property
     def has_tool_calls(self) -> bool:
         """Check if response contains tool calls."""
@@ -69,7 +69,7 @@ class GenerationSettings:
 class LLMProvider(ABC):
     """
     Abstract base class for LLM providers.
-    
+
     Implementations should handle the specifics of each provider's API
     while maintaining a consistent interface.
     """
@@ -169,14 +169,14 @@ class LLMProvider(ABC):
     ) -> LLMResponse:
         """
         Send a chat completion request.
-        
+
         Args:
             messages: List of message dicts with 'role' and 'content'.
             tools: Optional list of tool definitions.
             model: Model identifier (provider-specific).
             max_tokens: Maximum tokens in response.
             temperature: Sampling temperature.
-        
+
         Returns:
             LLMResponse with content and/or tool calls.
         """
@@ -263,3 +263,19 @@ class LLMProvider(ABC):
     def get_default_model(self) -> str:
         """Get the default model for this provider."""
         pass
+
+    async def list_models(self) -> list[str] | None:
+        """Get available models. Returns None if provider doesn't support model switching."""
+        return None
+
+    def get_current_model(self) -> str:
+        """Get the currently active model. Defaults to get_default_model()."""
+        return self.get_default_model()
+
+    def set_model(self, model_name: str) -> bool:
+        """Switch to a different model. Returns True on success, False if unsupported or failed."""
+        return False
+
+    async def refresh_models(self) -> bool:
+        """Refresh available models from remote. Returns True on success, False if unsupported."""
+        return False

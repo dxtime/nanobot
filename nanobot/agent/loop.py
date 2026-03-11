@@ -376,6 +376,115 @@ class AgentLoop:
             return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
                                   content="🐈 nanobot commands:\n/new — Start a new conversation\n/stop — Stop the current task\n/help — Show available commands")
 
+        if cmd == "/models" or cmd.startswith("/models "):
+            models = await self.provider.list_models()
+            if models is None:
+                return OutboundMessage(
+                    channel=msg.channel, chat_id=msg.chat_id,
+                    content="Model switching is not supported by the current provider.",
+                )
+            if not models:
+                await self.provider.refresh_models()
+                models = await self.provider.list_models() or []
+            if cmd == "/models":
+                if not models:
+                    return OutboundMessage(
+                        channel=msg.channel, chat_id=msg.chat_id,
+                        content="No models available. Use /models to refresh.",
+                    )
+                current = self.provider.get_current_model()
+                lines = ["Available models:"]
+                for i, m in enumerate(models, 1):
+                    marker = " (current)" if m == current else ""
+                    lines.append(f"  {i}. {m}{marker}")
+                lines.append(f"\nUse /models with a number to switch.")
+                return OutboundMessage(
+                    channel=msg.channel, chat_id=msg.chat_id, content="\n".join(lines)
+                )
+            parts = cmd.split(maxsplit=1)
+            if len(parts) == 2:
+                try:
+                    idx = int(parts[1])
+                    if 1 <= idx <= len(models):
+                        target = models[idx - 1]
+                        if self.provider.set_model(target):
+                            self.model = target
+                            return OutboundMessage(
+                                channel=msg.channel, chat_id=msg.chat_id,
+                                content=f"Switched to model: {target}",
+                            )
+                        return OutboundMessage(
+                            channel=msg.channel, chat_id=msg.chat_id,
+                            content=f"Failed to switch to model: {target}",
+                        )
+                    return OutboundMessage(
+                        channel=msg.channel, chat_id=msg.chat_id,
+                        content=f"Invalid model number. Use 1-{len(models)}.",
+                    )
+                except ValueError:
+                    return OutboundMessage(
+                        channel=msg.channel, chat_id=msg.chat_id,
+                        content="Invalid input. Use /models with a number.",
+                    )
+
+        if cmd == "/status":
+            identity = self.context._get_identity()
+            bootstrap = self.context._load_bootstrap_files()
+            memory_ctx = self.context.memory.get_memory_context()
+
+            always_skills = self.context.skills.get_always_skills()
+            always_content = (
+                self.context.skills.load_skills_for_context(always_skills) if always_skills else ""
+            )
+            skills_summary = self.context.skills.build_skills_summary()
+            skills_content = (
+                f"{always_content}\n{skills_summary}" if always_content else skills_summary
+            )
+
+            system_total = len(identity) + len(bootstrap) + len(memory_ctx) + len(skills_content)
+
+            msg_count = len(session.messages)
+            msg_chars = sum(len(str(m.get("content", ""))) for m in session.messages)
+
+            tool_defs = self.tools.get_definitions()
+            tool_chars = sum(len(str(d)) for d in tool_defs)
+
+            total_chars = system_total + msg_chars + tool_chars
+
+            skills = self.context.skills.list_skills(filter_unavailable=False)
+            skills_info = []
+            for s in skills:
+                meta = self.context.skills._get_skill_meta(s["name"])
+                available = self.context.skills._check_requirements(meta)
+                status = "ok" if available else "unavailable"
+                skills_info.append(f"    {s['name']} ({s['source']}, {status})")
+            skills_str = "\n".join(skills_info) if skills_info else "    (none)"
+
+            tool_names = sorted(self.tools.tool_names)
+
+            lines = [
+                "nanobot status",
+                f"  Model: {self.model}",
+                "  Context:",
+                f"    System: {system_total} chars",
+                f"      - Identity: {len(identity)} chars",
+                f"      - Bootstrap: {len(bootstrap)} chars",
+                f"      - Memory: {len(memory_ctx)} chars",
+                f"      - Skills: {len(skills_content)} chars",
+                f"    Messages: {msg_count} items, {msg_chars} chars",
+                f"    Tools: {len(tool_defs)} defs, {tool_chars} chars",
+                f"    Total: {total_chars} chars",
+                f"  Session: {session.key}",
+                f"  Created: {session.created_at.strftime('%Y-%m-%d %H:%M')}",
+                f"  Updated: {session.updated_at.strftime('%Y-%m-%d %H:%M')}",
+                "  Skills:",
+                skills_str,
+                f"  Tools: {', '.join(tool_names)}",
+            ]
+            return OutboundMessage(
+                channel=msg.channel, chat_id=msg.chat_id, content="\n".join(lines)
+            )
+
         await self.memory_consolidator.maybe_consolidate_by_tokens(session)
 
         self._set_tool_context(msg.channel, msg.chat_id, msg.metadata.get("message_id"))
